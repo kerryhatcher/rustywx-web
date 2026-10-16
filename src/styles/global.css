@@ -1,0 +1,190 @@
+@import '@fontsource-variable/archivo/wdth.css';
+@import '@fontsource-variable/overpass-mono/index.css';
+
+:root {
+  --paper: #f2f5f3;
+  --land: #f8faf8;
+  --water: #e2e9e9;
+  --ink: #16202b;
+  --ink-2: #45515d;
+  --ink-3: #5a6570;
+  --rule: rgb(22 32 43 / 0.2);
+  --rule-strong: rgb(22 32 43 / 0.55);
+  --cold: #1f52d6;
+  --cold-deep: #173e9f;
+  --warm: #ee5a16;
+  --warm-ink: #b13d0b;
+  --rain: #3e9b4f;
+  --rain-ink: #23703a;
+  --scope: #0e1420;
+
+  --sans: 'Archivo Variable', 'Archivo', system-ui, sans-serif;
+  --mono: 'Overpass Mono Variable', 'Overpass Mono', ui-monospace, monospace;
+
+  --gutter: clamp(16px, 3.2vw, 48px);
+  --measure: 68ch;
+  --step--1: 0.875rem;
+  --step-0: 1.0625rem;
+  --step-1: 1.25rem;
+  --step-2: clamp(1.5rem, 1.2rem + 1vw, 1.875rem);
+  --step-3: clamp(2rem, 1.4rem + 2.2vw, 3rem);
+  --step-4: clamp(2.5rem, 1.6rem + 3.4vw, 4.5rem);
+
+  color-scheme: light;
+  accent-color: var(--cold);
+  scrollbar-color: var(--rule-strong) var(--paper);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 72px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--step-0);
+  line-height: 1.55;
+  font-variation-settings: 'wdth' 100;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--warm);
+}
+
+::selection {
+  background: rgb(31 82 214 / 0.18);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--cold);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+a {
+  color: var(--cold-deep);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  color: var(--cold);
+  text-decoration-thickness: 2px;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  line-height: 1.08;
+  text-wrap: balance;
+  font-weight: 800;
+}
+
+p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0.05em 0.4em;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--land);
+  font-size: 0.82em;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  left: var(--gutter);
+  top: -100px;
+  z-index: 50;
+  padding: 0.5rem 0.9rem;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.skip:focus {
+  top: 8px;
+}
+
+/* Map lettering: condensed spaced caps, the way a drafted sheet labels places. */
+.lettering {
+  font-variation-settings: 'wdth' 72;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+/* Heavy expanded gothic for titles and pressure centres. */
+.gothic {
+  font-variation-settings: 'wdth' 125;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+
+.value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86em;
+  letter-spacing: 0;
+}
+
+.astro-code {
+  --astro-code-foreground: var(--ink);
+  --astro-code-background: var(--land);
+  --astro-code-token-constant: var(--warm-ink);
+  --astro-code-token-string: var(--rain-ink);
+  --astro-code-token-comment: var(--ink-3);
+  --astro-code-token-keyword: var(--cold-deep);
+  --astro-code-token-parameter: var(--ink);
+  --astro-code-token-function: var(--cold-deep);
+  --astro-code-token-string-expression: var(--rain-ink);
+  --astro-code-token-punctuation: var(--ink-2);
+  --astro-code-token-link: var(--cold-deep);
+}

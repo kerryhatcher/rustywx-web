@@ -1,0 +1,191 @@
+---
+import { PRIMARY_DOWNLOAD, VERSION, href } from '../data/site';
+
+const d = PRIMARY_DOWNLOAD;
+const meta = (x: (typeof d)['mac']) => `${x.arch} · ${x.mb} MB`;
+---
+
+<div class="key" data-install-key>
+  <div class="act">
+    <a
+      class="download"
+      href={d.mac.href}
+      data-download
+      data-mac-href={d.mac.href}
+      data-mac-meta={meta(d.mac)}
+      data-linux-href={d.linux.href}
+      data-linux-meta={meta(d.linux)}
+      data-windows-href={d.windows.href}
+      data-windows-meta={meta(d.windows)}
+    >
+      <span class="main">Download for <span data-os-label>macOS</span></span>
+      <span class="meta value" data-os-meta>{meta(d.mac)}</span>
+    </a>
+    <a class="more" href={href('/#install')}>All builds for v{VERSION}</a>
+  </div>
+  <div class="act">
+    <div class="cmd">
+      <code>cargo install rustywx</code>
+      <button type="button" data-copy="cargo install rustywx" title="Copy">
+        <svg class="i-copy" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <rect x="5.5" y="5.5" width="8" height="8.5" fill="none" stroke="currentColor" stroke-width="1.4"></rect>
+          <path d="M3 10.5V2.5h7.5" fill="none" stroke="currentColor" stroke-width="1.4"></path>
+        </svg>
+        <svg class="i-done" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <path d="M2.5 8.5l3.5 3.5 7.5-8" fill="none" stroke="currentColor" stroke-width="1.8"></path>
+        </svg>
+        <span class="visually-hidden" data-copy-label aria-live="polite">Copy the cargo install command</span>
+      </button>
+    </div>
+    <span class="more plain">With a Rust 1.85+ toolchain</span>
+  </div>
+</div>
+
+<script>
+  const keys = document.querySelectorAll<HTMLElement>('[data-install-key]');
+  const ua = navigator.userAgent;
+  const os = /Windows/i.test(ua) ? 'windows' : /Linux|X11/i.test(ua) && !/Android/i.test(ua) ? 'linux' : /Mac/i.test(ua) && !/iPhone|iPad/i.test(ua) ? 'mac' : null;
+  const names = { mac: 'macOS', linux: 'Linux', windows: 'Windows' } as const;
+
+  for (const key of keys) {
+    const a = key.querySelector<HTMLAnchorElement>('[data-download]');
+    if (a && os) {
+      a.href = a.dataset[`${os}Href`]!;
+      key.querySelector('[data-os-label]')!.textContent = names[os];
+      key.querySelector('[data-os-meta]')!.textContent = a.dataset[`${os}Meta`]!;
+    }
+  }
+
+  document.addEventListener('click', async (e) => {
+    const btn = (e.target as Element).closest<HTMLButtonElement>('[data-copy]');
+    if (!btn) return;
+    const label = btn.querySelector('[data-copy-label]');
+    try {
+      await navigator.clipboard.writeText(btn.dataset.copy!);
+      btn.dataset.state = 'copied';
+      if (label) label.textContent = 'Copied to clipboard';
+    } catch {
+      if (label) label.textContent = 'Copy failed; select the command instead';
+    }
+    setTimeout(() => {
+      delete btn.dataset.state;
+      if (label) label.textContent = 'Copy the cargo install command';
+    }, 1800);
+  });
+</script>
+
+<style>
+  .key {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .act {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+    min-width: 0;
+  }
+
+  .download {
+    display: grid;
+    gap: 2px;
+    min-height: 64px;
+    align-content: center;
+    padding: 10px 16px;
+    background: var(--cold);
+    color: #fff;
+    text-decoration: none;
+    border: 2px solid var(--ink);
+    transition: background-color 160ms ease-out;
+  }
+
+  .download:hover {
+    background: var(--cold-deep);
+    color: #fff;
+  }
+
+  .main {
+    font-variation-settings: 'wdth' 110;
+    font-weight: 800;
+    font-size: 1.0625rem;
+    line-height: 1.15;
+  }
+
+  .download .meta {
+    color: rgb(255 255 255 / 0.86);
+    font-size: 0.75rem;
+  }
+
+  .cmd {
+    display: flex;
+    align-items: stretch;
+    min-height: 64px;
+    border: 2px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  .cmd code {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    min-width: 0;
+    padding: 0 10px 0 12px;
+    font-size: 0.8125rem;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+
+  .cmd button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    padding: 0;
+    border: 0;
+    border-left: 1px solid rgb(242 245 243 / 0.28);
+    background: transparent;
+    color: var(--paper);
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .i-done,
+  [data-state='copied'] .i-copy {
+    display: none;
+  }
+
+  [data-state='copied'] .i-done {
+    display: block;
+    color: #7fd18f;
+  }
+
+  .cmd button:hover {
+    background: rgb(242 245 243 / 0.12);
+    color: #fff;
+  }
+
+  .cmd code::selection {
+    background: rgb(242 245 243 / 0.3);
+    color: #fff;
+  }
+
+  .more {
+    font-size: 0.8125rem;
+    color: var(--ink-2);
+  }
+
+  @media (max-width: 1180px) and (min-width: 900px), (max-width: 520px) {
+    .key {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

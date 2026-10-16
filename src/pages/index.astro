@@ -1,0 +1,1362 @@
+---
+import { Image } from 'astro:assets';
+import Base from '../layouts/Base.astro';
+import AnalysisMap from '../components/AnalysisMap.astro';
+import InstallKey from '../components/InstallKey.astro';
+import Plate from '../components/Plate.astro';
+import Symbol from '../components/Symbol.astro';
+import radarShot from '../assets/screenshot-radar.png';
+import forecastShot from '../assets/screenshot-forecast-crop.png';
+import legends from '../data/legends.json';
+import sites from '../data/sites.json';
+import { INSET, VIEW_W, VIEW_H } from '../lib/analysis';
+import { DOWNLOADS, VERSION, RELEASED, RELEASE_TAG, REPO, CRATE, href } from '../data/site';
+
+const pct = (v: number, of: number) => `${((v / of) * 100).toFixed(3)}%`;
+const kjgx = sites.find((s) => s.id === 'KJGX')!;
+
+type Legend = { v: number; hex: string }[];
+const products: {
+  key: string;
+  name: string;
+  short: string;
+  unit: string;
+  legend: Legend;
+  reads: string;
+  derived?: boolean;
+}[] = [
+  { key: 'R', name: 'Reflectivity', short: 'Z', unit: 'dBZ', legend: legends.DBZ_LEGEND, reads: 'How much energy came back, so how hard it is raining. Greens are light rain, reds are heavy, magenta and white above 60 dBZ usually mean hail.' },
+  { key: 'V', name: 'Velocity', short: 'V', unit: 'm/s', legend: legends.VELOCITY_LEGEND, reads: 'Motion toward the radar in green, away in red. A tight green-red couplet is rotation. Values near the Nyquist limit can fold, so dealiasing is on by default.' },
+  { key: 'W', name: 'Spectrum Width', short: 'SW', unit: 'm/s', legend: legends.SPECTRUM_WIDTH_LEGEND, reads: 'How spread out the velocities are inside each sample. High values flag turbulence, shear and mixed targets, and often rise before rotation shows.' },
+  { key: 'Z', name: 'Differential Reflectivity', short: 'ZDR', unit: 'dB', legend: legends.ZDR_LEGEND, reads: 'Horizontal versus vertical return, which tells you drop shape. Big flattened raindrops run positive; tumbling hail sits near zero.' },
+  { key: 'C', name: 'Correlation Coefficient', short: 'CC', unit: '', legend: legends.CC_LEGEND, reads: 'How alike the two pulses look. Rain and snow sit above 0.97. Low values mean birds, clutter, mixed hail, or lofted tornado debris.' },
+  { key: 'P', name: 'Differential Phase', short: 'ΦDP', unit: '°', legend: legends.PHIDP_LEGEND, reads: 'The phase shift built up as the beam travels through liquid water. It climbs steadily along a path of heavy rain.' },
+  { key: 'K', name: 'Specific Differential Phase', short: 'KDP', unit: '°/km', legend: legends.KDP_LEGEND, reads: 'How fast ΦDP rises with range: a rain-rate signal that hail barely moves. rustywx derives it on your machine from ΦDP.', derived: true },
+];
+
+const legendLabel = (v: number) => (Math.abs(v) < 1 && v !== 0 ? v.toFixed(2).replace(/0$/, '') : String(v));
+const ticksFor = (l: Legend) => {
+  const step = l.length > 10 ? 3 : l.length > 7 ? 2 : 1;
+  return new Set(l.map((_, i) => i).filter((i) => i % step === 0 || i === l.length - 1));
+};
+
+const radarNotes = [
+  { x: 52, y: 5, at: 4, title: 'Overlay toggles with live counts.', text: '14 watches and 59 warnings were active when this was captured.' },
+  { x: 83, y: 9, at: 16, title: 'NHC panel.', text: 'Intensity, pressure, position, movement and advisory number for every active storm.' },
+  { x: 53, y: 52, at: 32, title: 'Reflectivity from KJGX.', text: 'Decoded from the newest Level II volume on this machine.' },
+  { x: 37, y: 63, at: 47, title: 'NWS warning polygons.', text: 'Drawn in their official colors, with a legend along the bottom.' },
+  { x: 15, y: 70, at: 61, title: 'Forecast cone, track and points.', text: 'From the National Hurricane Center, refreshed on its own interval.' },
+  { x: 80, y: 69, at: 76, title: 'Graphics and advisory text.', text: '5-day cone, key messages, wind field, wind probabilities and peak surge, plus the full public advisory.' },
+  { x: 19, y: 98, at: 93, title: 'Status line.', text: 'Scan time, site, tilt count and angle, VCP, scan mode and Nyquist velocity.' },
+];
+
+const forecastNotes = [
+  { x: 64, y: 17, at: 12, title: 'City search.', text: 'Geocoded with Open-Meteo, or use your saved location.' },
+  { x: 58, y: 33, at: 34, title: 'Current conditions.', text: 'Temperature, feels-like, wind and humidity.' },
+  { x: 72, y: 53, at: 56, title: '7-day outlook.', text: 'Highs, lows and the chance of rain each day.' },
+  { x: 72, y: 82, at: 80, title: 'Hourly rain chance.', text: 'The next 24 hours as a chart.' },
+];
+
+const qc = [
+  { name: 'Correlation-coefficient gating', note: 'hides non-weather echo from Reflectivity', on: true },
+  { name: 'Reflectivity noise floor', note: 'drops returns too weak to be weather', on: true },
+  { name: 'Velocity dealiasing', note: 'unfolds values past the Nyquist limit', on: true },
+  { name: 'Velocity noise censoring', note: 'nulls gates whose local spread is noise', on: true },
+  { name: 'TDBZ clutter filter', note: 'wind turbines and ground clutter, 5×5 / 9×9 / 13×13', on: true, value: '9×9' },
+  { name: 'Fuzzy non-met classifier', note: 'combines CC, ZDR and ΦDP texture', on: false },
+  { name: 'Radial gap-fill', note: 'heals thin gaps in the data, cosmetic', on: false },
+  { name: 'Multi-scale texture filter', note: 'a more aggressive clutter pass', on: false },
+  { name: 'Sun-spike and interference removal', note: 'removes isolated bright spokes', on: false },
+  { name: 'Melting-layer hint', note: 'annotates the estimated bright band', on: false },
+];
+
+// The sheet keeps its graticule below the hero: one label every 400px, running south.
+const marginLats = Array.from({ length: 34 }, (_, n) => {
+  const lat = 20 - n;
+  return lat === 0 ? '0°' : `${Math.abs(lat)}°${lat > 0 ? 'N' : 'S'}`;
+});
+
+const tropicalRows = [
+  { label: 'Storm details', value: 'kt · mb · motion', x: 62, y: 12.1 },
+  { label: 'Track, forecast cone and points', value: 'map layers', x: 62, y: 31.2 },
+  { label: 'Wind probabilities', value: '34 kt', x: 74, y: 46.1 },
+  { label: 'Earliest and most likely arrival', value: '34 kt', x: 90, y: 49.2 },
+  { label: 'Graphics products', value: '5', x: 62, y: 57 },
+  { label: 'Full public advisory text', value: 'in app', x: 62, y: 96.2 },
+];
+
+const keys = [
+  { k: ['←', '→'], label: 'Previous / next site' },
+  { k: ['T'], label: 'Next tilt' },
+  { k: ['0'], label: 'Reset pan and zoom' },
+  { k: ['B'], label: 'Borders' },
+  { k: ['A'], label: 'Warnings' },
+  { k: ['N'], label: 'Tropical data' },
+  { k: ['F'], label: 'Fullscreen' },
+  { k: ['?'], label: 'All shortcuts' },
+];
+---
+
+<Base
+  title="rustywx · live NEXRAD Level II radar for your desktop"
+  description="A free, open-source desktop radar scope. rustywx streams raw NEXRAD Level II Doppler data from NOAA's public archive, decodes it on your machine, and draws it with NWS warnings, hurricane guidance and a local forecast."
+>
+  <main id="main">
+    <div class="sheet-body">
+      <div class="margin left" aria-hidden="true">
+        {marginLats.map((t) => <span>{t}</span>)}
+      </div>
+      <div class="margin right" aria-hidden="true">
+        {marginLats.map((t) => <span>{t}</span>)}
+      </div>
+    <section class="sheet" aria-labelledby="hero-title">
+      <div class="sheet-frame">
+        <div class="map-wrap">
+          <script is:inline>
+            document.currentScript.parentElement.classList.add('drafting');
+          </script>
+          <AnalysisMap />
+        </div>
+
+        <div class="pitch">
+          <h1 id="hero-title" class="gothic">Live Doppler radar, straight from NOAA to your desktop.</h1>
+          <p class="lede">
+            rustywx is a free radar scope for macOS, Linux and Windows. It pulls raw NEXRAD Level II scans from NOAA's
+            public archive, decodes them on your machine and draws them on a fast native map, with NWS warnings,
+            hurricane guidance and a local forecast.
+          </p>
+          <p class="no">No account, API key or subscription needed</p>
+          <InstallKey />
+        </div>
+
+        <figure
+          class="inset"
+          style={`left:${pct(INSET.x, VIEW_W)};top:${pct(INSET.y, VIEW_H)};width:${pct(INSET.w, VIEW_W)}`}
+        >
+          <Image
+            src={radarShot}
+            alt="rustywx showing live reflectivity around KJGX in Georgia, NWS warning polygons along the Gulf coast, and the National Hurricane Center panel for Tropical Storm Bertha."
+            widths={[480, 720, 960]}
+            sizes="(min-width: 900px) 30vw, 100vw"
+            loading="eager"
+          />
+          <figcaption>
+            <span class="value">KJGX</span> Robins AFB, Georgia. A real rustywx 0.10.2 screen.
+          </figcaption>
+        </figure>
+
+        <div class="site-control" data-site-control>
+          <button type="button" data-site-step="-1" aria-label="Previous radar site">
+            <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M8 1L3 6l5 5" fill="none" stroke="currentColor" stroke-width="1.8"></path></svg>
+          </button>
+          <p aria-live="polite">
+            <span class="value id" data-site-id>KJGX</span>
+            <span class="name" data-site-name>{kjgx.name}</span>
+            <span class="value coords" data-site-coords>{kjgx.lat.toFixed(2)}°N {Math.abs(kjgx.lon).toFixed(2)}°W</span>
+          </p>
+          <button type="button" data-site-step="1" aria-label="Next radar site">
+            <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M4 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8"></path></svg>
+          </button>
+          <span class="hint">
+            <kbd>←</kbd><kbd>→</kbd> walk all {sites.length} sites, as in the app. Rings: 115 and 230&nbsp;km.
+          </span>
+        </div>
+
+        <aside class="map-key" aria-label="Map key">
+          <ul>
+            <li><Symbol kind="cold" /> Cold front</li>
+            <li><Symbol kind="warm" /> Warm front</li>
+            <li><Symbol kind="isobar" /> Isobar, mb</li>
+            <li><Symbol kind="rain" /> Precipitation</li>
+            <li><Symbol kind="site" /> NEXRAD site</li>
+          </ul>
+          <p>
+            Illustrative analysis drawn for this page, not a forecast. The radar sites are the real {sites.length} in
+            rustywx's site list.
+          </p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="band path" aria-labelledby="path-title">
+      <header class="section-head">
+        <Symbol kind="site" size="lg" />
+        <h2 id="path-title" class="gothic">No middleman between you and the radar.</h2>
+      </header>
+      <p class="intro">
+        Most radar apps show you map tiles someone else rendered. rustywx downloads the same Level II volume scans the
+        National Weather Service radars produce and decodes them on your computer. Nothing passes through a rustywx
+        server, because there isn't one.
+      </p>
+      <ol class="stations">
+        <li>
+          <span class="dot" aria-hidden="true"></span>
+          <h3>NOAA's public archive</h3>
+          <p><code>unidata-nexrad-level2</code> on AWS, the archive researchers and forecasters use.</p>
+          <dl>
+            <div><dt>Account</dt><dd class="value">none</dd></div>
+            <div><dt>API key</dt><dd class="value">none</dd></div>
+          </dl>
+        </li>
+        <li>
+          <span class="dot" aria-hidden="true"></span>
+          <h3>Polled by your machine</h3>
+          <p>The newest volume for your site, fetched in the background.</p>
+          <dl>
+            <div><dt>Default interval</dt><dd class="value">2 min</dd></div>
+            <div><dt>Retry backoff</dt><dd class="value">30 s → 600 s</dd></div>
+          </dl>
+        </li>
+        <li>
+          <span class="dot" aria-hidden="true"></span>
+          <h3>Decoded locally</h3>
+          <p>Raw Doppler moments unpacked with the <code>nexrad</code> crates, then cleaned by rustywx's own QC.</p>
+          <dl>
+            <div><dt>Products</dt><dd class="value">7</dd></div>
+            <div><dt>Display range</dt><dd class="value">230 km</dd></div>
+          </dl>
+        </li>
+        <li>
+          <span class="dot" aria-hidden="true"></span>
+          <h3>Drawn on your GPU</h3>
+          <p>A native window rendered with ply-engine, animating smoothly between volumes.</p>
+          <dl>
+            <div><dt>Range rings</dt><dd class="value">10 nmi</dd></div>
+            <div><dt>Telemetry</dt><dd class="value">none</dd></div>
+          </dl>
+        </li>
+      </ol>
+    </section>
+
+    <section class="band scope" aria-labelledby="scope-title">
+      <header class="section-head">
+        <Symbol kind="cold" size="lg" />
+        <h2 id="scope-title" class="gothic">Radar, warnings and the tropics on one scope.</h2>
+      </header>
+      <Plate
+        id="scope-plate"
+        src={radarShot}
+        alt="The rustywx radar view over the Southeast US with toolbar toggles, warning polygons, a hurricane forecast cone and the NHC tropical cyclone panel."
+        caption="Captured 2026-07-23 01:07 UTC on KJGX, VCP 215, 0.5° tilt. Unedited screenshot."
+        notes={radarNotes}
+      />
+    </section>
+
+    <section class="band products" id="products" aria-labelledby="products-title">
+      <header class="section-head">
+        <Symbol kind="rain" size="lg" />
+        <h2 id="products-title" class="gothic">Seven products, one key each.</h2>
+      </header>
+      <p class="intro">
+        The three classic moments plus the dual-polarization products every NEXRAD radar now records. Each one is on the
+        same color table the app draws, with its values printed, so you never have to guess what a color means.
+      </p>
+      <ul class="product-list">
+        {
+          products.map((p) => {
+            const ticks = ticksFor(p.legend);
+            return (
+              <li>
+                <kbd class="pkey" aria-label={`Key ${p.key}`}>{p.key}</kbd>
+                <div class="pname">
+                  <h3>{p.name}</h3>
+                  <span class="value">
+                    {p.short}
+                    {p.unit && ` · ${p.unit}`}
+                    {p.derived && ' · derived'}
+                  </span>
+                </div>
+                <p class="preads">{p.reads}</p>
+                <div class="ramp" role="img" aria-label={`${p.name} color scale from ${p.legend[0].v} to ${p.legend[p.legend.length - 1].v} ${p.unit}`}>
+                  <div class="swatches">
+                    {p.legend.map((s) => <span style={`background:${s.hex}`} />)}
+                  </div>
+                  <div class="ticks value" aria-hidden="true">
+                    {p.legend.map((s, i) => <span>{ticks.has(i) ? legendLabel(s.v) : ''}</span>)}
+                  </div>
+                </div>
+              </li>
+            );
+          })
+        }
+      </ul>
+      <div class="keystrip" aria-label="Other keyboard shortcuts">
+        <h3 class="lettering">And the rest of the keyboard</h3>
+        <ul>
+          {
+            keys.map((k) => (
+              <li>
+                <span class="kbds">
+                  {k.k.map((c) => (
+                    <kbd>{c}</kbd>
+                  ))}
+                </span>
+                {k.label}
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </section>
+
+    <section class="band tropical" id="tropical" aria-labelledby="tropical-title">
+      <div class="tropical-grid">
+        <div class="tropical-copy">
+          <header class="section-head">
+            <Symbol kind="cyclone" size="lg" />
+            <h2 id="tropical-title" class="gothic">Hurricane season, in the same window.</h2>
+          </header>
+          <p class="intro">
+            When a storm is out there, the National Hurricane Center's guidance sits on top of your radar instead of in
+            another tab. Pick the storm, choose the layers, and read the advisory without leaving the scope.
+          </p>
+          <ol class="ledger pinned">
+            {
+              tropicalRows.map((r, n) => (
+                <li>
+                  <span class="num value" aria-hidden="true">{n + 1}</span>
+                  <span>{r.label}</span>
+                  <span class="value">{r.value}</span>
+                </li>
+              ))
+            }
+          </ol>
+        </div>
+        <figure class="crop">
+          <div class="crop-window">
+            {
+              tropicalRows.map((r, n) => (
+                <span class="marker" style={`left:${r.x}%;top:${r.y}%`} aria-hidden="true">
+                  {n + 1}
+                </span>
+              ))
+            }
+            <Image
+              src={radarShot}
+              alt="The rustywx NHC Tropical Cyclones panel showing Tropical Storm Bertha at 40 knots and 1002 mb, map overlay toggles, and graphics products."
+              widths={[1329]}
+              sizes="1210px"
+              loading="lazy"
+            />
+          </div>
+          <figcaption>Tropical Storm Bertha, advisory 14A, in the NHC panel. Numbers match the list.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="band forecast" aria-labelledby="forecast-title">
+      <header class="section-head">
+        <Symbol kind="high" size="lg" />
+        <h2 id="forecast-title" class="gothic">And the forecast for where you are.</h2>
+      </header>
+      <Plate
+        id="forecast-plate"
+        src={forecastShot}
+        alt="The rustywx forecast view: city search, current conditions of 79°F and partly cloudy, a seven-day outlook, and an hourly rain-chance chart."
+        caption="The Forecast view. Coordinates were blurred in this screenshot for privacy."
+        notes={forecastNotes}
+      />
+    </section>
+
+    <section class="band honest" aria-labelledby="honest-title">
+      <div class="honest-grid">
+        <div>
+          <header class="section-head">
+            <Symbol kind="low" size="lg" />
+            <h2 id="honest-title" class="gothic">Honest radar.</h2>
+          </header>
+          <p class="intro">
+            rustywx shows what the radar saw. Filters that remove clutter and noise are on by default and adjustable.
+            Anything cosmetic, or anything that could hide real weather, stays off until you turn it on.
+          </p>
+          <p class="intro">
+            Every switch lives in the settings panel and is described in the <a href={href('/docs/quality-control/')}>quality control guide</a>.
+          </p>
+        </div>
+        <ul class="ledger qc">
+          {
+            qc.map((f) => (
+              <li class:list={[{ off: !f.on }]}>
+                <span>
+                  <strong>{f.name}</strong>
+                  <span class="note">{f.note}</span>
+                </span>
+                <span class="value state">{f.on ? (f.value ?? 'ON') : 'OFF'}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </section>
+
+    <section class="band demo" aria-labelledby="demo-title">
+      <header class="section-head">
+        <Symbol kind="warm" size="lg" />
+        <h2 id="demo-title" class="gothic">Quiet sky? Replay a famous one.</h2>
+      </header>
+      <p class="intro">
+        Demo mode downloads one historical volume from the NOAA archive, caches it, and pauses live polling. The status
+        line reads <code>DEMO —</code> so a screenshot is never mistaken for live data.
+      </p>
+      <dl class="demos">
+        <div>
+          <dt><code>rustywx --demo moore2013</code></dt>
+          <dd>Moore, Oklahoma EF5 tornado <span class="value">KTLX · 2013-05-20 20:16 UTC</span></dd>
+        </div>
+        <div>
+          <dt><code>rustywx --demo harvey2017</code></dt>
+          <dd>Hurricane Harvey landfall <span class="value">KCRP · 2017-08-26 03:04 UTC</span></dd>
+        </div>
+        <div>
+          <dt><code>rustywx --demo &lt;file&gt;</code></dt>
+          <dd>Any Level II volume you already have <span class="value">site from the file name</span></dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="band install" id="install" aria-labelledby="install-title">
+      <header class="section-head">
+        <Symbol kind="site" size="lg" filled />
+        <h2 id="install-title" class="gothic">Install rustywx {VERSION}.</h2>
+      </header>
+      <div class="install-grid">
+        <div>
+          <p class="intro">
+            Released {RELEASED}. Prebuilt for Apple Silicon Macs, 64-bit Windows, and Linux on x86-64 and ARM64. Intel
+            Macs build from source with cargo.
+          </p>
+          <InstallKey />
+        </div>
+        <table class="builds">
+          <caption class="visually-hidden">All v{VERSION} downloads</caption>
+          <thead>
+            <tr><th scope="col">System</th><th scope="col">Build</th><th scope="col" class="num">Size</th></tr>
+          </thead>
+          <tbody>
+            {
+              DOWNLOADS.map((d) => (
+                <tr>
+                  <th scope="row">
+                    {d.label} <span class="arch">{d.arch}</span>
+                  </th>
+                  <td><a href={d.href}>{d.kind}</a></td>
+                  <td class="num value">{d.mb} MB</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="install-notes">
+        <div>
+          <h3>Linux AppImage</h3>
+          <p>Signed and self-contained. Download the matching <code>.sha256</code> too, then:</p>
+          <pre><code>sha256sum --check rustywx-{VERSION}-x86_64.AppImage.sha256
+chmod +x rustywx-{VERSION}-x86_64.AppImage
+./rustywx-{VERSION}-x86_64.AppImage</code></pre>
+        </div>
+        <div>
+          <h3>What it needs</h3>
+          <p>
+            A working GPU and graphics stack, and a network connection. On Linux it prefers native Wayland and falls back
+            to X11 on its own. A headless server won't open a window.
+          </p>
+          <p><a href={href('/docs/install/')}>Full install guide</a> · <a href={RELEASE_TAG}>Release notes</a> · <a href={CRATE}>crates.io</a></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="band source" aria-labelledby="source-title">
+      <header class="section-head">
+        <Symbol kind="isobar" size="lg" />
+        <h2 id="source-title" class="gothic">Open source, down to the last gate.</h2>
+      </header>
+      <div class="source-grid">
+        <p class="intro">
+          rustywx is written in Rust and licensed AGPL-3.0. The data path runs in one direction, from the S3 archive to
+          a background worker, a thin scan model, the rasterizer and your screen, and every stage is small enough to read
+          in an afternoon. Bug reports, ideas and pull requests are welcome.
+        </p>
+        <ul class="ledger">
+          <li><a href={href('/docs/architecture/')}>Architecture and data flow</a><span class="value">docs</span></li>
+          <li><a href={href('/docs/contributing/')}>Build, test and lint</a><span class="value">just ci</span></li>
+          <li><a href={REPO}>Source code</a><span class="value">GitHub</span></li>
+          <li><a href={`${REPO}/discussions`}>Questions and ideas</a><span class="value">Discussions</span></li>
+        </ul>
+      </div>
+    </section>
+      <p class="edition lettering" aria-hidden="true">
+        <span>rustywx radar sheet</span><span class="value">v{VERSION}</span><span>Front: illustrative analysis · sites, scales and screens: real</span>
+      </p>
+    </div>
+  </main>
+</Base>
+
+<script>
+  const trimMargins = () => {
+    for (const m of document.querySelectorAll<HTMLElement>('.margin')) {
+      const bottom = m.getBoundingClientRect().bottom;
+      m.querySelectorAll<HTMLElement>('span').forEach((s) => {
+        s.style.visibility = '';
+        if (s.getBoundingClientRect().bottom > bottom - 4) s.style.visibility = 'hidden';
+      });
+    }
+  };
+  addEventListener('load', trimMargins);
+  addEventListener('resize', trimMargins);
+
+  const svg = document.querySelector<SVGSVGElement>('[data-analysis]');
+  const control = document.querySelector<HTMLElement>('[data-site-control]');
+  if (svg) {
+    // On phones, frame the sheet on the lower 48 instead of the open Pacific.
+    const narrow = matchMedia('(max-width: 899px)');
+    const frame = () => svg.setAttribute('viewBox', narrow.matches ? '610 0 960 700' : '0 0 1600 860');
+    frame();
+    narrow.addEventListener('change', frame);
+  }
+  if (svg && control) {
+    const dots = Array.from(svg.querySelectorAll<SVGCircleElement>('[data-sites] circle'));
+    const rings = svg.querySelector<SVGGElement>('[data-rings]')!;
+    const tag = svg.querySelector<SVGGElement>('[data-tag]')!;
+    const tagText = svg.querySelector<SVGTextElement>('[data-tag-text]')!;
+    const idEl = control.querySelector('[data-site-id]')!;
+    const nameEl = control.querySelector('[data-site-name]')!;
+    const coordsEl = control.querySelector('[data-site-coords]')!;
+    let index = dots.findIndex((d) => d.dataset.id === 'KJGX');
+
+    const select = (i: number) => {
+      index = (i + dots.length) % dots.length;
+      const d = dots[index];
+      dots.forEach((x) => x.classList.toggle('selected', x === d));
+      const x = d.cx.baseVal.value;
+      const y = d.cy.baseVal.value;
+      const k = Number(d.dataset.k);
+      rings.setAttribute('transform', `translate(${x} ${y})`);
+      rings.style.transform = '';
+      rings.querySelectorAll<SVGCircleElement>('[data-ring]').forEach((c) => c.setAttribute('r', String(Number(c.dataset.ring) * k)));
+      const r = 230 * k;
+      rings.querySelector('[data-spokes]')!.setAttribute('d', `M0,-${r}V${r}M-${r},0H${r}`);
+      tag.setAttribute('transform', `translate(${x} ${y})`);
+      tagText.textContent = d.dataset.id!;
+      idEl.textContent = d.dataset.id!;
+      nameEl.textContent = d.dataset.name!;
+      const lat = Number(d.dataset.lat);
+      const lon = Number(d.dataset.lon);
+      coordsEl.textContent = `${lat.toFixed(2)}°N ${Math.abs(lon).toFixed(2)}°W`;
+    };
+
+    control.addEventListener('click', (e) => {
+      const b = (e.target as Element).closest<HTMLButtonElement>('[data-site-step]');
+      if (b) select(index + Number(b.dataset.siteStep));
+    });
+
+    svg.addEventListener('click', (e) => {
+      const c = (e.target as Element).closest<SVGCircleElement>('[data-sites] circle');
+      if (c) select(dots.indexOf(c));
+    });
+
+    let heroVisible = true;
+    new IntersectionObserver(([entry]) => (heroVisible = entry.isIntersecting), { threshold: 0.2 }).observe(svg);
+
+    document.addEventListener('keydown', (e) => {
+      if (!heroVisible || e.altKey || e.ctrlKey || e.metaKey) return;
+      const t = e.target as HTMLElement;
+      if (t.closest('input, textarea, select, [contenteditable]')) return;
+      if (e.key === 'ArrowRight') select(index + 1);
+      else if (e.key === 'ArrowLeft') select(index - 1);
+      else return;
+      e.preventDefault();
+    });
+  }
+</script>
+
+<style>
+  .sheet {
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .sheet-frame {
+    position: relative;
+    aspect-ratio: 1600 / 860;
+    max-height: calc(100svh - 58px);
+    min-height: 600px;
+    margin-inline: auto;
+    overflow: hidden;
+    background: var(--water);
+  }
+
+  .map-wrap {
+    position: absolute;
+    inset: 0;
+  }
+
+  .map-wrap :global(svg) {
+    width: 100%;
+    height: 100%;
+  }
+
+  .pitch {
+    position: absolute;
+    left: 3%;
+    top: 5.5%;
+    width: 37%;
+    display: grid;
+    gap: 18px;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 1rem + 2.4vw, 3.6rem);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+  }
+
+  .lede {
+    max-width: 46ch;
+    font-size: clamp(1rem, 0.9rem + 0.25vw, 1.125rem);
+    color: var(--ink-2);
+  }
+
+  .no {
+    font-variation-settings: 'wdth' 80;
+    font-weight: 700;
+    font-size: 0.8125rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--warm-ink);
+  }
+
+  .inset {
+    position: absolute;
+    margin: 0;
+  }
+
+  .inset :global(img) {
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--ink);
+    box-shadow: 0 0 0 4px var(--land), 0 0 0 5px var(--ink), 0 14px 30px -12px rgb(22 32 43 / 0.45);
+  }
+
+  .inset figcaption {
+    margin-top: 10px;
+    font-size: 0.75rem;
+    color: var(--ink-2);
+  }
+
+  .site-control {
+    position: absolute;
+    right: 2.5%;
+    top: 3%;
+    width: max-content;
+    max-width: 30%;
+    display: grid;
+    grid-template-columns: auto auto auto;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 10px 12px;
+    background: var(--land);
+    border: 1px solid var(--ink);
+    box-shadow: 0 0 0 3px var(--land), 0 0 0 4px var(--rule-strong);
+  }
+
+  .site-control p {
+    display: grid;
+    min-width: 0;
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+
+  .site-control .id {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--warm-ink);
+  }
+
+  .site-control .name {
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+
+  .site-control .coords {
+    font-size: 0.72rem;
+    color: var(--ink-2);
+  }
+
+  .site-control button {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+  }
+
+  .site-control button:hover {
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  .hint {
+    grid-column: 1 / -1;
+    max-width: 30ch;
+    font-size: 0.72rem;
+    color: var(--ink-2);
+    text-wrap: balance;
+  }
+
+  .hint kbd {
+    margin-right: 2px;
+  }
+
+  .map-key {
+    position: absolute;
+    left: 3%;
+    bottom: 3.5%;
+    width: 37%;
+    padding-top: 12px;
+    border-top: 1px solid var(--rule-strong);
+    font-size: 0.75rem;
+    color: var(--ink-2);
+  }
+
+  .map-key ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 0 0 6px;
+    padding: 0;
+    list-style: none;
+    color: var(--ink);
+  }
+
+  .map-key li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ---------- The sheet continues below the hero ---------- */
+
+  .sheet-body {
+    --edge: 30px;
+    /* Height of the hero sheet frame, so margin labels start below the map. */
+    --hero-h: clamp(600px, calc((100vw - 2 * var(--edge)) * 0.5375), calc(100svh - 58px));
+    position: relative;
+    padding: 0 var(--edge);
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .margin {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 30px;
+    display: grid;
+    grid-auto-rows: 400px;
+    align-content: start;
+    overflow: hidden;
+    padding-top: calc(var(--hero-h) + 200px);
+    background:
+      repeating-linear-gradient(to bottom, var(--rule-strong) 0 1px, transparent 1px 40px) 0 0 / 7px 100% no-repeat,
+      repeating-linear-gradient(to bottom, var(--ink) 0 1px, transparent 1px 200px) 0 0 / 14px 100% no-repeat;
+    border-right: 1px solid var(--ink);
+    box-shadow: 3px 0 0 var(--paper), 4px 0 0 var(--rule-strong);
+    pointer-events: none;
+  }
+
+  .margin.left {
+    left: 0;
+  }
+
+  .margin.right {
+    right: 0;
+    transform: scaleX(-1);
+  }
+
+  .margin span {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-2);
+    writing-mode: vertical-rl;
+    translate: 13px -50%;
+    height: max-content;
+  }
+
+  .margin.right span {
+    transform: scaleX(-1);
+  }
+
+  .edition {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 24px;
+    max-width: 1360px;
+    margin: clamp(72px, 9vw, 136px) auto 0;
+    padding: 12px var(--gutter) 16px;
+    border-top: 1px solid var(--rule-strong);
+    color: var(--ink-2);
+    font-size: 0.6875rem;
+  }
+
+  .edition .value {
+    text-transform: none;
+  }
+
+  /* ---------- Bands below the sheet ---------- */
+
+  .band {
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: clamp(72px, 9vw, 136px) var(--gutter) 0;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 28px;
+  }
+
+  h2 {
+    font-size: var(--step-3);
+    letter-spacing: -0.025em;
+    max-width: 22ch;
+  }
+
+  .intro {
+    max-width: 62ch;
+    font-size: var(--step-1);
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+
+  .intro + .intro {
+    margin-top: 16px;
+  }
+
+  .intro code,
+  .stations code,
+  .install-notes code {
+    font-size: 0.85em;
+    color: var(--ink);
+  }
+
+  /* Data path as a front line with station plots */
+  .stations {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 32px;
+    margin: 56px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .stations::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -2px;
+    height: 13px;
+    background:
+      linear-gradient(var(--cold), var(--cold)) 0 100% / 100% 3px no-repeat,
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='11'%3E%3Cpath d='M14 11l7-10 7 10z' fill='%231f52d6'/%3E%3C/svg%3E") 0 0 / 44px 11px repeat-x;
+  }
+
+  .stations li {
+    position: relative;
+    padding-top: 36px;
+  }
+
+  .dot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 19px;
+    height: 19px;
+    border: 2px solid var(--ink);
+    border-radius: 50%;
+    background: var(--land);
+  }
+
+  .stations li:last-child .dot {
+    background: var(--warm);
+  }
+
+  .stations h3 {
+    font-size: var(--step-1);
+    font-variation-settings: 'wdth' 110;
+    margin-bottom: 8px;
+  }
+
+  .stations p {
+    font-size: 0.9375rem;
+    color: var(--ink-2);
+  }
+
+  .stations dl {
+    margin: 16px 0 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .stations dl div,
+  .ledger li {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--rule);
+    font-size: 0.875rem;
+  }
+
+  .stations dd {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  /* Products */
+  .product-list {
+    margin: 48px 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 2px solid var(--ink);
+  }
+
+  .product-list li {
+    display: grid;
+    grid-template-columns: 64px minmax(180px, 1.1fr) minmax(240px, 2fr) minmax(260px, 2fr);
+    gap: 24px;
+    align-items: center;
+    padding: 22px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .pkey {
+    width: 52px;
+    height: 52px;
+    display: grid;
+    place-items: center;
+    font-family: var(--sans);
+    font-variation-settings: 'wdth' 125;
+    font-weight: 900;
+    font-size: 1.6rem;
+    border: 2px solid var(--ink);
+    border-bottom-width: 4px;
+    background: var(--land);
+  }
+
+  .pname h3 {
+    font-size: 1.125rem;
+    font-variation-settings: 'wdth' 105;
+  }
+
+  .pname .value {
+    color: var(--ink-2);
+  }
+
+  .preads {
+    font-size: 0.9375rem;
+    color: var(--ink-2);
+  }
+
+  .swatches,
+  .ticks {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+  }
+
+  .swatches {
+    height: 22px;
+    border: 1px solid var(--ink);
+  }
+
+  .ticks span {
+    padding-top: 4px;
+    font-size: 0.68rem;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+
+  .keystrip {
+    margin-top: 40px;
+  }
+
+  .keystrip h3 {
+    margin-bottom: 14px;
+    color: var(--ink-2);
+  }
+
+  .keystrip ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 28px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.875rem;
+  }
+
+  .keystrip li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .kbds {
+    display: flex;
+    gap: 3px;
+  }
+
+  /* Tropical */
+  .tropical-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 620px) 300px;
+    justify-content: start;
+    gap: clamp(32px, 5vw, 72px);
+    align-items: start;
+  }
+
+  .pinned li {
+    display: grid;
+    grid-template-columns: 1.8em 1fr auto;
+  }
+
+  .pinned .num {
+    color: var(--warm-ink);
+    font-weight: 700;
+  }
+
+  .crop-window .marker {
+    position: absolute;
+    z-index: 1;
+    translate: -50% -50%;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--warm-ink);
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: 0 0 0 2px var(--ink), 0 2px 6px rgb(0 0 0 / 0.35);
+  }
+
+  .ledger {
+    margin: 32px 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 2px solid var(--ink);
+  }
+
+  .ledger .value {
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+
+  .crop {
+    margin: 0;
+  }
+
+  .crop-window {
+    position: relative;
+    aspect-ratio: 330 / 900;
+    max-height: 760px;
+    margin-left: auto;
+    overflow: hidden;
+    border: 1px solid var(--ink);
+    box-shadow: 0 0 0 4px var(--paper), 0 0 0 5px var(--ink);
+    background: var(--scope);
+    width: min(100%, 300px);
+  }
+
+  .crop-window :global(img) {
+    position: absolute;
+    top: -6.2%;
+    right: -0.6%;
+    width: 402%;
+    max-width: none;
+    height: auto;
+  }
+
+  .crop figcaption {
+    margin: 18px 0 0 auto;
+    width: min(100%, 300px);
+    font-size: 0.8125rem;
+    color: var(--ink-2);
+  }
+
+  /* Honest radar */
+  .honest-grid {
+    display: grid;
+    grid-template-columns: 5fr 6fr;
+    gap: clamp(32px, 5vw, 80px);
+    align-items: start;
+  }
+
+  .qc {
+    margin-top: 8px;
+  }
+
+  .qc li > span:first-child {
+    display: grid;
+  }
+
+  .qc .note {
+    font-size: 0.8125rem;
+    color: var(--ink-2);
+  }
+
+  .qc .state {
+    font-weight: 700;
+    color: var(--rain-ink);
+  }
+
+  .qc .off .state {
+    color: var(--ink-2);
+  }
+
+  /* Demo */
+  .demos {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    margin: 40px 0 0;
+  }
+
+  .demos div {
+    padding-top: 14px;
+    border-top: 3px solid var(--warm);
+  }
+
+  .demos dt code {
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+
+  .demos dd {
+    display: grid;
+    gap: 4px;
+    margin: 8px 0 0;
+    color: var(--ink-2);
+  }
+
+  /* Install */
+  .install-grid {
+    display: grid;
+    grid-template-columns: 6fr 5fr;
+    gap: clamp(32px, 5vw, 80px);
+    align-items: start;
+  }
+
+  .install-grid .intro {
+    margin-bottom: 28px;
+  }
+
+  .builds {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+    border-top: 2px solid var(--ink);
+  }
+
+  .builds th,
+  .builds td {
+    padding: 9px 8px 9px 0;
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+  }
+
+  .builds thead th {
+    font-variation-settings: 'wdth' 80;
+    font-weight: 650;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+
+  .builds .num {
+    text-align: right;
+    padding-right: 0;
+  }
+
+  .arch {
+    color: var(--ink-2);
+    font-weight: 400;
+  }
+
+  .install-notes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(32px, 5vw, 80px);
+    margin-top: 56px;
+  }
+
+  .install-notes h3 {
+    font-size: 1.125rem;
+    margin-bottom: 8px;
+  }
+
+  .install-notes p {
+    color: var(--ink-2);
+    font-size: 0.9375rem;
+  }
+
+  .install-notes p + p {
+    margin-top: 12px;
+  }
+
+  pre {
+    margin: 14px 0 0;
+    padding: 14px 16px;
+    overflow-x: auto;
+    background: var(--land);
+    border: 1px solid var(--ink);
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+
+  /* Source */
+  .source-grid {
+    display: grid;
+    grid-template-columns: 6fr 5fr;
+    gap: clamp(32px, 5vw, 80px);
+    align-items: start;
+  }
+
+  .source-grid .ledger {
+    margin-top: 0;
+  }
+
+  /* ---------- Narrow screens ---------- */
+
+  @media (min-width: 900px) and (max-width: 1340px) {
+    .pitch,
+    .map-key {
+      width: 40%;
+    }
+  }
+
+  @media (min-width: 900px) and (max-width: 1180px) {
+    .site-control {
+      top: auto;
+      right: auto;
+      bottom: 3%;
+      left: 43%;
+      max-width: 25.5%;
+    }
+    .site-control .hint {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1180px) {
+    .product-list li {
+      grid-template-columns: 56px minmax(0, 1fr);
+      gap: 12px 20px;
+    }
+    .preads,
+    .ramp {
+      grid-column: 2;
+    }
+  }
+
+  @media (max-width: 899px) {
+    .sheet-frame {
+      aspect-ratio: auto;
+      max-height: none;
+      min-height: 0;
+      overflow: visible;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      background: var(--paper);
+    }
+    .map-wrap {
+      position: relative;
+      order: 2;
+      overflow: hidden;
+      border-block: 1px solid var(--rule-strong);
+      background: var(--water);
+    }
+    .map-wrap :global(svg) {
+      height: auto;
+    }
+    .pitch,
+    .inset,
+    .site-control,
+    .map-key {
+      position: static;
+      width: auto !important;
+    }
+    .pitch {
+      order: 1;
+      padding: 28px var(--gutter) 32px;
+    }
+    .site-control {
+      order: 3;
+      max-width: none;
+      margin: 16px var(--gutter) 0;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+    .inset {
+      order: 4;
+      margin: 28px var(--gutter) 0;
+    }
+    .map-key {
+      order: 5;
+      margin: 24px var(--gutter) 32px;
+    }
+    .stations,
+    .demos,
+    .install-grid,
+    .install-notes,
+    .tropical-grid,
+    .honest-grid,
+    .source-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .stations::before {
+      left: 8px;
+      right: auto;
+      top: 0;
+      bottom: 0;
+      width: 14px;
+      height: auto;
+      background:
+        linear-gradient(var(--cold), var(--cold)) 0 0 / 3px 100% no-repeat,
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='44'%3E%3Cpath d='M0 14l10 7-10 7z' fill='%231f52d6'/%3E%3C/svg%3E") 3px 0 / 11px 44px repeat-y;
+    }
+    .sheet-body {
+      --edge: 10px;
+    }
+    .margin {
+      width: 10px;
+      padding-top: 0;
+      background: repeating-linear-gradient(to bottom, var(--rule-strong) 0 1px, transparent 1px 40px) 0 0 / 6px 100% no-repeat;
+      box-shadow: none;
+    }
+    .margin span {
+      display: none;
+    }
+    .stations li {
+      padding: 0 0 0 40px;
+    }
+    .crop-window,
+    .crop figcaption {
+      margin-left: 0;
+    }
+    .section-head {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+    }
+  }
+</style>

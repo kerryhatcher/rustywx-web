@@ -1,0 +1,80 @@
+---
+import { REPO, RELEASES, CRATE, VERSION, href } from '../data/site';
+---
+
+<footer class="colophon">
+  <div class="cols">
+    <section aria-labelledby="col-data">
+      <h2 id="col-data" class="lettering">Data from</h2>
+      <ul>
+        <li><a href="https://www.noaa.gov/">NOAA</a> and Unidata, <code>unidata-nexrad-level2</code> on AWS</li>
+        <li><a href="https://www.weather.gov/">National Weather Service</a> alerts</li>
+        <li><a href="https://www.nhc.noaa.gov/">National Hurricane Center</a> tropical products</li>
+        <li><a href="https://open-meteo.com">Open-Meteo</a> forecast and geocoding</li>
+      </ul>
+    </section>
+    <section aria-labelledby="col-built">
+      <h2 id="col-built" class="lettering">Built on</h2>
+      <ul>
+        <li><a href="https://github.com/danielway/nexrad">nexrad</a> crates for Level II decoding</li>
+        <li><a href="https://github.com/TheRedDeveloper/ply-engine">ply-engine</a> for GPU rendering</li>
+        <li>Rust, edition 2024</li>
+      </ul>
+    </section>
+    <section aria-labelledby="col-project">
+      <h2 id="col-project" class="lettering">Project</h2>
+      <ul>
+        <li><a href={REPO}>Source on GitHub</a></li>
+        <li><a href={RELEASES}>Releases</a> <span class="value">v{VERSION}</span></li>
+        <li><a href={CRATE}>crates.io</a></li>
+        <li><a href={href('/docs/')}>Documentation</a></li>
+        <li><a href={`${REPO}/issues`}>Report a bug</a></li>
+      </ul>
+    </section>
+  </div>
+  <p class="fine">
+    rustywx is free software under the <a href={`${REPO}/blob/main/LICENSE`}>AGPL-3.0</a>. Its logo and artwork are{' '}
+    <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>. This website is MIT licensed. rustywx is an
+    independent project and is not affiliated with NOAA or the National Weather Service. Not for life-safety
+    decisions: follow official NWS warnings.
+  </p>
+</footer>
+
+<style>
+  .colophon {
+    margin-top: 0;
+    padding: clamp(32px, 4vw, 56px) var(--gutter) 40px;
+    border-top: 2px solid var(--ink);
+    box-shadow: inset 0 3px 0 var(--paper), inset 0 4px 0 var(--ink);
+  }
+
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 32px clamp(24px, 4vw, 64px);
+    max-width: 1280px;
+  }
+
+  h2 {
+    margin-bottom: 12px;
+    color: var(--ink-2);
+  }
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 6px;
+    font-size: var(--step--1);
+  }
+
+  .fine {
+    max-width: 82ch;
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+    color: var(--ink-2);
+    font-size: 0.8125rem;
+  }
+</style>

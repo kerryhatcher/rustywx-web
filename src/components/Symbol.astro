@@ -1,0 +1,136 @@
+---
+interface Props {
+  kind: 'cold' | 'warm' | 'isobar' | 'rain' | 'site' | 'cyclone' | 'high' | 'low';
+  size?: 'sm' | 'lg';
+  filled?: boolean;
+}
+const { kind, size = 'sm', filled = false } = Astro.props;
+const w = size === 'lg' ? 56 : 28;
+const h = size === 'lg' ? 40 : 14;
+---
+
+<svg class:list={['sym', size, kind]} width={w} height={h} viewBox={size === 'lg' ? '0 0 56 40' : '0 0 28 14'} aria-hidden="true" focusable="false">
+  {
+    size === 'sm' ? (
+      <>
+        {kind === 'cold' && (
+          <>
+            <path d="M1 11H27" stroke="var(--cold)" stroke-width="2.4" />
+            <path d="M5 11l4-7 4 7zM15 11l4-7 4 7z" fill="var(--cold)" />
+          </>
+        )}
+        {kind === 'warm' && (
+          <>
+            <path d="M1 11H27" stroke="var(--warm)" stroke-width="2.4" />
+            <path d="M5 11a4 4 0 0 1 8 0zM15 11a4 4 0 0 1 8 0z" fill="var(--warm)" />
+          </>
+        )}
+        {kind === 'isobar' && <path d="M1 9C8 1 20 13 27 5" fill="none" stroke="var(--ink)" stroke-width="1.4" />}
+        {kind === 'rain' && (
+          <>
+            <defs>
+              <pattern id="sym-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="4" stroke="var(--rain)" stroke-width="1.6" />
+              </pattern>
+            </defs>
+            <rect x="2" y="1.5" width="24" height="11" rx="5.5" fill="url(#sym-hatch)" stroke="var(--rain)" />
+          </>
+        )}
+        {kind === 'site' && <circle cx="14" cy="7" r="4.5" fill={filled ? 'var(--warm)' : 'var(--land)'} stroke="var(--ink)" stroke-width="1.4" />}
+        {kind === 'cyclone' && (
+          <g transform="translate(7.5 0) scale(0.0273)">
+            <path fill="var(--cold)" d="M262 96 C356 104 430 178 424 276 C420 340 380 384 330 392 C368 350 372 292 340 258 C388 268 402 214 372 172 C338 124 292 108 262 96 Z" />
+            <path fill="var(--cold)" transform="rotate(180 256 256)" d="M262 96 C356 104 430 178 424 276 C420 340 380 384 330 392 C368 350 372 292 340 258 C388 268 402 214 372 172 C338 124 292 108 262 96 Z" />
+            <circle cx="256" cy="256" r="46" fill="var(--warm)" />
+          </g>
+        )}
+        {kind === 'high' && (
+          <text x="14" y="13" text-anchor="middle" class="letter sm high">
+            H
+          </text>
+        )}
+        {kind === 'low' && (
+          <text x="14" y="13" text-anchor="middle" class="letter sm low">
+            L
+          </text>
+        )}
+      </>
+    ) : (
+      <>
+        {kind === 'cold' && (
+          <>
+            <path d="M2 32H54" stroke="var(--cold)" stroke-width="4" />
+            <path d="M6 32l7-13 7 13zM24 32l7-13 7 13zM42 32l6-11 6 11z" fill="var(--cold)" />
+          </>
+        )}
+        {kind === 'warm' && (
+          <>
+            <path d="M2 32H54" stroke="var(--warm)" stroke-width="4" />
+            <path d="M7 32a7 7 0 0 1 14 0zM27 32a7 7 0 0 1 14 0zM46 32a5 5 0 0 1 8 0z" fill="var(--warm)" />
+          </>
+        )}
+        {kind === 'isobar' && (
+          <>
+            <path d="M2 30C14 6 40 38 54 12" fill="none" stroke="var(--ink)" stroke-width="2" />
+            <path d="M2 38C16 18 40 44 54 24" fill="none" stroke="var(--ink)" stroke-width="1.2" stroke-opacity="0.5" />
+          </>
+        )}
+        {kind === 'rain' && (
+          <>
+            <defs>
+              <pattern id="sym-hatch-lg" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="6" stroke="var(--rain)" stroke-width="2.2" />
+              </pattern>
+            </defs>
+            <path d="M6 30c-6-10 4-24 18-20 6-8 22-6 24 6 8 4 6 16-4 18-10 4-30 6-38-4z" fill="url(#sym-hatch-lg)" stroke="var(--rain)" stroke-width="1.6" />
+          </>
+        )}
+        {kind === 'site' && (
+          <>
+            <circle cx="28" cy="20" r="15" fill="none" stroke="var(--warm-ink)" stroke-width="1.2" stroke-dasharray="3 3" />
+            <circle cx="28" cy="20" r="7" fill={filled ? 'var(--warm)' : 'var(--land)'} stroke="var(--ink)" stroke-width="2" />
+          </>
+        )}
+        {kind === 'cyclone' && (
+          <g transform="translate(8 0) scale(0.078)">
+            <path fill="var(--cold)" d="M262 96 C356 104 430 178 424 276 C420 340 380 384 330 392 C368 350 372 292 340 258 C388 268 402 214 372 172 C338 124 292 108 262 96 Z" />
+            <path fill="var(--cold)" transform="rotate(180 256 256)" d="M262 96 C356 104 430 178 424 276 C420 340 380 384 330 392 C368 350 372 292 340 258 C388 268 402 214 372 172 C338 124 292 108 262 96 Z" />
+            <circle cx="256" cy="256" r="38" fill="var(--warm)" stroke="var(--ink)" stroke-width="8" />
+          </g>
+        )}
+        {kind === 'high' && (
+          <text x="28" y="34" text-anchor="middle" class="letter high">
+            H
+          </text>
+        )}
+        {kind === 'low' && (
+          <text x="28" y="34" text-anchor="middle" class="letter low">
+            L
+          </text>
+        )}
+      </>
+    )
+  }
+</svg>
+
+<style>
+  .sym {
+    flex: none;
+    overflow: visible;
+  }
+  .letter {
+    font-family: var(--sans);
+    font-variation-settings: 'wdth' 125;
+    font-weight: 900;
+    font-size: 40px;
+  }
+  .letter.sm {
+    font-size: 15px;
+  }
+  .letter.high {
+    fill: var(--cold);
+  }
+  .letter.low {
+    fill: var(--warm);
+  }
+</style>

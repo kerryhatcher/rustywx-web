@@ -1,0 +1,37 @@
+---
+import '../styles/global.css';
+import Masthead from '../components/Masthead.astro';
+import Colophon from '../components/Colophon.astro';
+import { href } from '../data/site';
+
+interface Props {
+  title: string;
+  description: string;
+  current?: 'home' | 'docs';
+}
+const { title, description, current = 'home' } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href={href('/logo-mark.svg')} />
+    <meta name="theme-color" content="#f2f5f3" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <Masthead current={current} />
+    <slot />
+    <Colophon />
+  </body>
+</html>

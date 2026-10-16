@@ -1,0 +1,409 @@
+---
+import { getCollection, type CollectionEntry } from 'astro:content';
+import type { MarkdownHeading } from 'astro';
+import Base from './Base.astro';
+import Symbol from '../components/Symbol.astro';
+import { REPO, VERSION, href } from '../data/site';
+
+interface Props {
+  entry: CollectionEntry<'docs'>;
+  headings: MarkdownHeading[];
+}
+const { entry, headings } = Astro.props;
+
+const GROUPS = ['Getting started', 'Using rustywx', 'Reference', 'Contributing'] as const;
+const all = (await getCollection('docs')).sort(
+  (a, b) => GROUPS.indexOf(a.data.group) - GROUPS.indexOf(b.data.group) || a.data.order - b.data.order,
+);
+const url = (e: CollectionEntry<'docs'>) => href(e.id === 'index' ? '/docs/' : `/docs/${e.id}/`);
+const i = all.findIndex((e) => e.id === entry.id);
+const prev = all[i - 1];
+const next = all[i + 1];
+const toc = headings.filter((h) => h.depth === 2);
+const source = `https://github.com/kerryhatcher/rustywx-web/blob/main/src/content/docs/${entry.id}.md`;
+---
+
+<Base title={`${entry.data.title} · rustywx docs`} description={entry.data.description} current="docs">
+  <div class="docs">
+    <nav class="rail" aria-label="Documentation">
+      <details open data-rail>
+      <summary class="lettering">Contents <span class="value">{entry.data.title}</span></summary>
+      <p class="rail-title lettering">Key to the sheet <span class="value">v{VERSION}</span></p>
+      {
+        GROUPS.map((g) => (
+          <section>
+            <h2 class="lettering">{g}</h2>
+            <ul>
+              {all
+                .filter((e) => e.data.group === g)
+                .map((e) => (
+                  <li>
+                    <a href={url(e)} aria-current={e.id === entry.id ? 'page' : undefined}>
+                      <Symbol kind={e.data.symbol} />
+                      <span>{e.data.title}</span>
+                    </a>
+                  </li>
+                ))}
+            </ul>
+          </section>
+        ))
+      }
+      </details>
+    </nav>
+
+    <main id="main" class="column">
+      <header class="opener">
+        <Symbol kind={entry.data.symbol} size="lg" />
+        <h1 class="gothic">{entry.data.title}</h1>
+        <p class="lede">{entry.data.description}</p>
+      </header>
+
+      {
+        toc.length > 2 && (
+          <nav class="toc" aria-label="On this page">
+            <h2 class="lettering">On this page</h2>
+            <ol>
+              {toc.map((h) => (
+                <li>
+                  <a href={`#${h.slug}`}>{h.text}</a>
+                </li>
+              ))}
+            </ol>
+          </nav>
+        )
+      }
+
+      <article class="prose">
+        <slot />
+      </article>
+
+      <nav class="pager" aria-label="Previous and next">
+        {
+          prev ? (
+            <a class="prev" href={url(prev)}>
+              <span class="lettering">Previous</span>
+              <span>{prev.data.title}</span>
+            </a>
+          ) : (
+            <span />
+          )
+        }
+        {
+          next && (
+            <a class="next" href={url(next)}>
+              <span class="lettering">Next</span>
+              <span>{next.data.title}</span>
+            </a>
+          )
+        }
+      </nav>
+      <p class="edit">
+        Something wrong or missing? <a href={source}>Edit this page</a> or <a href={`${REPO}/issues`}>open an issue</a>.
+      </p>
+    </main>
+  </div>
+</Base>
+
+<script>
+  const rail = document.querySelector<HTMLDetailsElement>('[data-rail]');
+  if (rail && matchMedia('(max-width: 899px)').matches) rail.open = false;
+</script>
+
+<style>
+  summary {
+    display: none;
+  }
+
+  .docs {
+    display: grid;
+    grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
+    gap: clamp(32px, 5vw, 80px);
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 0 var(--gutter);
+  }
+
+  .rail {
+    position: sticky;
+    top: 58px;
+    align-self: start;
+    max-height: calc(100svh - 58px);
+    overflow-y: auto;
+    padding: 32px 20px 40px 0;
+    border-right: 1px solid var(--rule-strong);
+    scrollbar-width: thin;
+  }
+
+  .rail-title {
+    display: flex;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .rail section + section {
+    margin-top: 22px;
+  }
+
+  .rail h2 {
+    margin-bottom: 6px;
+    color: var(--ink-2);
+    font-size: 0.6875rem;
+  }
+
+  .rail ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .rail a {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 8px 5px 4px;
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 0.9375rem;
+    line-height: 1.3;
+  }
+
+  .rail a:hover {
+    background: var(--land);
+    color: var(--cold-deep);
+  }
+
+  .rail a[aria-current='page'] {
+    background: var(--land);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px var(--ink);
+  }
+
+  .column {
+    min-width: 0;
+    max-width: 760px;
+    padding: 48px 0 0;
+  }
+
+  .opener {
+    display: grid;
+    gap: 14px;
+    padding-bottom: 28px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .opener h1 {
+    font-size: var(--step-4);
+    letter-spacing: -0.03em;
+  }
+
+  .lede {
+    max-width: 60ch;
+    font-size: var(--step-1);
+    color: var(--ink-2);
+  }
+
+  .toc {
+    margin-top: 24px;
+    padding: 14px 0 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .toc h2 {
+    margin-bottom: 8px;
+    color: var(--ink-2);
+  }
+
+  .toc ol {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.9375rem;
+  }
+
+  .prose {
+    max-width: var(--measure);
+    padding-top: 12px;
+  }
+
+  .prose :global(h2) {
+    margin: 2.6em 0 0.6em;
+    font-size: var(--step-2);
+    font-variation-settings: 'wdth' 112;
+    letter-spacing: -0.02em;
+    scroll-margin-top: 72px;
+  }
+
+  .prose :global(h3) {
+    margin: 2em 0 0.5em;
+    font-size: var(--step-1);
+    font-variation-settings: 'wdth' 105;
+    scroll-margin-top: 72px;
+  }
+
+  .prose :global(p),
+  .prose :global(ul),
+  .prose :global(ol),
+  .prose :global(dl) {
+    margin: 0 0 1.05em;
+  }
+
+  .prose :global(li + li) {
+    margin-top: 0.35em;
+  }
+
+  .prose :global(ul),
+  .prose :global(ol) {
+    padding-left: 1.3em;
+  }
+
+  .prose :global(li::marker) {
+    color: var(--ink-3);
+  }
+
+  .prose :global(strong) {
+    font-weight: 700;
+  }
+
+  .prose :global(:not(pre) > code) {
+    padding: 0.08em 0.32em;
+    background: var(--land);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    font-size: 0.86em;
+  }
+
+  .prose :global(pre) {
+    margin: 0 0 1.3em;
+    padding: 16px 18px;
+    overflow-x: auto;
+    border: 1px solid var(--ink);
+    box-shadow: 0 0 0 3px var(--paper), 0 0 0 4px var(--rule-strong);
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+
+  .prose :global(table) {
+    width: 100%;
+    margin: 0 0 1.4em;
+    border-collapse: collapse;
+    border-top: 2px solid var(--ink);
+    font-size: 0.9375rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .prose :global(th),
+  .prose :global(td) {
+    padding: 8px 12px 8px 0;
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .prose :global(thead th) {
+    font-variation-settings: 'wdth' 80;
+    font-weight: 650;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+
+  .prose :global(blockquote) {
+    margin: 0 0 1.3em;
+    padding: 12px 16px;
+    background: var(--land);
+    border: 1px solid var(--rule-strong);
+    color: var(--ink-2);
+  }
+
+  .prose :global(blockquote p:last-child) {
+    margin: 0;
+  }
+
+  .prose :global(hr) {
+    border: 0;
+    border-top: 1px solid var(--rule);
+    margin: 2.4em 0;
+  }
+
+  .pager {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 2px solid var(--ink);
+  }
+
+  .pager a {
+    display: grid;
+    gap: 4px;
+    padding: 12px 0;
+    text-decoration: none;
+    font-weight: 700;
+  }
+
+  .pager .lettering {
+    color: var(--ink-2);
+    font-weight: 650;
+  }
+
+  .next {
+    text-align: right;
+  }
+
+  .edit {
+    margin: 32px 0 clamp(64px, 9vw, 128px);
+    font-size: 0.8125rem;
+    color: var(--ink-2);
+  }
+
+  @media (max-width: 899px) {
+    .docs {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+    .prose :global(table) {
+      display: block;
+      overflow-x: auto;
+    }
+    .rail {
+      position: static;
+      max-height: none;
+      padding: 0;
+      border-right: 0;
+      border-bottom: 2px solid var(--ink);
+    }
+    summary {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 0;
+      cursor: pointer;
+    }
+    summary .value {
+      text-transform: none;
+      letter-spacing: 0;
+      color: var(--ink-2);
+    }
+    details[open] {
+      padding-bottom: 20px;
+    }
+    .rail-title {
+      grid-column: 1 / -1;
+      margin-bottom: 0;
+    }
+    .rail section + section {
+      margin-top: 0;
+    }
+    .column {
+      padding-top: 32px;
+    }
+  }
+</style>
